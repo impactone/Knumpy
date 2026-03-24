@@ -126,6 +126,16 @@ def linspace(start, stop, num=50, endpoint=True, retstep=False, dtype=None,
         )
     div = (num - 1) if endpoint else num
 
+    integral_start = (
+        (type(start) is np.ndarray and start.dtype.kind in "biu") or
+        isinstance(start, (bool, int, np.bool_, np.integer))
+    )
+    integral_stop = (
+        (type(stop) is np.ndarray and stop.dtype.kind in "biu") or
+        isinstance(stop, (bool, int, np.bool_, np.integer))
+    )
+    integral_inputs = integral_start and integral_stop
+
     conv = _array_converter(start, stop)
     start, stop = conv.as_arrays()
     dt = conv.result_type(ensure_inexact=True)
@@ -149,7 +159,7 @@ def linspace(start, stop, num=50, endpoint=True, retstep=False, dtype=None,
     if div > 0:
         _mult_inplace = _nx.isscalar(delta)
         step = delta / div
-        any_step_zero = (
+        any_step_zero = False if integral_inputs else (
             step == 0 if _mult_inplace else _nx.asanyarray(step == 0).any())
         if any_step_zero:
             # Special handling for denormal numbers, gh-5437
