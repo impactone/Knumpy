@@ -148,8 +148,8 @@ def linspace(start, stop, num=50, endpoint=True, retstep=False, dtype=None,
     # in place only for standard scalar types.
     if div > 0:
         _mult_inplace = _nx.isscalar(delta)
-        step = delta / div
         if _mult_inplace:
+            step = delta / div
             any_step_zero = step == 0
         else:
             integral_inputs = (
@@ -158,8 +158,13 @@ def linspace(start, stop, num=50, endpoint=True, retstep=False, dtype=None,
                 ((type(stop) is np.ndarray and stop.dtype.kind in "biu") or
                  isinstance(stop, (bool, int, np.bool_, np.integer)))
             )
-            any_step_zero = (
-                False if integral_inputs else _nx.asanyarray(step == 0).any())
+            if integral_inputs:
+                step = delta
+                step /= div
+                any_step_zero = False
+            else:
+                step = delta / div
+                any_step_zero = _nx.asanyarray(step == 0).any()
         if any_step_zero:
             # Special handling for denormal numbers, gh-5437
             y /= div
