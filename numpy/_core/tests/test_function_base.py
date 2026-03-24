@@ -482,6 +482,17 @@ class TestLinspace:
         y = linspace(start, stop, 3)
         assert_array_equal(y, array([[0.0, 1.0], [1.0, 1.0], [2.0, 1.0]]))
 
+    def test_integer_inputs_with_zero_step(self):
+        start = array([0, 1], dtype="int64")
+        stop = array([2, 1], dtype="int64")
+        y = linspace(start, stop, 3)
+        assert_array_equal(y, array([[0.0, 1.0], [1.0, 1.0], [2.0, 1.0]]))
+
+    def test_integer_array_retstep(self):
+        y, step = linspace(array([0, 1]), array([2, 3]), 3, retstep=True)
+        assert_array_equal(y, array([[0.0, 1.0], [1.0, 2.0], [2.0, 3.0]]))
+        assert_array_equal(step, array([1.0, 1.0]))
+
 
 class TestAdd_newdoc:
 

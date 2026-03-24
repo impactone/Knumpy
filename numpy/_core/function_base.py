@@ -138,9 +138,25 @@ def linspace(start, stop, num=50, endpoint=True, retstep=False, dtype=None,
 
     # Use `dtype=type(dt)` to enforce a floating point evaluation:
     delta = np.subtract(stop, start, dtype=type(dt))
-    y = _nx.arange(
-        0, num, dtype=dt, device=device
-    ).reshape((-1,) + (1,) * ndim(delta))
+    if endpoint and num == 2:
+        y = _nx.empty((2,) + _nx.shape(delta), dtype=dt)
+        y[0, ...] = start
+        y[1, ...] = stop
+        step = delta
+
+        if axis != 0:
+            y = _nx.moveaxis(y, 0, axis)
+
+        if integer_dtype:
+            _nx.floor(y, out=y)
+
+        y = conv.wrap(y.astype(dtype, copy=False))
+        if retstep:
+            return y, step
+        else:
+            return y
+
+    y = _nx.arange(0, num, dtype=dt, device=device)
 
     # In-place multiplication y *= delta/div is faster, but prevents
     # the multiplicant from overriding what class is produced, and thus
@@ -148,26 +164,43 @@ def linspace(start, stop, num=50, endpoint=True, retstep=False, dtype=None,
     # in place only for standard scalar types.
     if div > 0:
         _mult_inplace = _nx.isscalar(delta)
-        step = delta / div
-        any_step_zero = (
-            step == 0 if _mult_inplace else _nx.asanyarray(step == 0).any())
+        if _mult_inplace:
+            step = delta / div
+            any_step_zero = step == 0
+        else:
+            integral_inputs = (
+                ((type(start) is np.ndarray and start.dtype.kind in "biu") or
+                 isinstance(start, (bool, int, np.bool_, np.integer))) and
+                ((type(stop) is np.ndarray and stop.dtype.kind in "biu") or
+                 isinstance(stop, (bool, int, np.bool_, np.integer)))
+            )
+            if integral_inputs:
+                step = delta
+                step /= div
+                any_step_zero = False
+            else:
+                step = delta / div
+                any_step_zero = _nx.asanyarray(step == 0).any()
         if any_step_zero:
             # Special handling for denormal numbers, gh-5437
             y /= div
             if _mult_inplace:
                 y *= delta
             else:
-                y = y * delta
+                y = _nx.multiply.outer(y, delta)
         elif _mult_inplace:
             y *= step
         else:
-            y = y * step
+            y = _nx.multiply.outer(y, step)
     else:
         # sequences with 0 items or 1 item with endpoint=True (i.e. div <= 0)
         # have an undefined step
         step = nan
         # Multiply with delta to allow possible override of output class.
-        y = y * delta
+        if _nx.isscalar(delta):
+            y = y * delta
+        else:
+            y = _nx.multiply.outer(y, delta)
 
     y += start
 
