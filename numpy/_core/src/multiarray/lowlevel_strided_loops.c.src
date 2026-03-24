@@ -369,8 +369,42 @@ _contig_to_contig(
     npy_intp N = dimensions[0];
     char *src = args[0], *dst = args[1];
     npy_intp src_itemsize = context->descriptors[0]->elsize;
+    npy_intp total_bytes = src_itemsize * N;
 
-    memmove(dst, src, src_itemsize*N);
+    /*
+     * Small non-overlapping copies show up heavily in fancy-indexing getitem.
+     * Use constant-size memcpy cases so the compiler can inline them instead
+     * of paying the full memmove dispatch cost.
+     */
+    if (total_bytes <= 32 && (dst + total_bytes <= src || src + total_bytes <= dst)) {
+        switch (total_bytes) {
+            case 0:
+                return 0;
+            case 1:
+                memcpy(dst, src, 1);
+                return 0;
+            case 2:
+                memcpy(dst, src, 2);
+                return 0;
+            case 4:
+                memcpy(dst, src, 4);
+                return 0;
+            case 8:
+                memcpy(dst, src, 8);
+                return 0;
+            case 16:
+                memcpy(dst, src, 16);
+                return 0;
+            case 24:
+                memcpy(dst, src, 24);
+                return 0;
+            case 32:
+                memcpy(dst, src, 32);
+                return 0;
+        }
+    }
+
+    memmove(dst, src, total_bytes);
     return 0;
 }
 
