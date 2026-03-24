@@ -138,9 +138,7 @@ def linspace(start, stop, num=50, endpoint=True, retstep=False, dtype=None,
 
     # Use `dtype=type(dt)` to enforce a floating point evaluation:
     delta = np.subtract(stop, start, dtype=type(dt))
-    y = _nx.arange(
-        0, num, dtype=dt, device=device
-    ).reshape((-1,) + (1,) * ndim(delta))
+    y = _nx.arange(0, num, dtype=dt, device=device)
 
     # In-place multiplication y *= delta/div is faster, but prevents
     # the multiplicant from overriding what class is produced, and thus
@@ -171,17 +169,20 @@ def linspace(start, stop, num=50, endpoint=True, retstep=False, dtype=None,
             if _mult_inplace:
                 y *= delta
             else:
-                y = y * delta
+                y = _nx.multiply.outer(y, delta)
         elif _mult_inplace:
             y *= step
         else:
-            y = y * step
+            y = _nx.multiply.outer(y, step)
     else:
         # sequences with 0 items or 1 item with endpoint=True (i.e. div <= 0)
         # have an undefined step
         step = nan
         # Multiply with delta to allow possible override of output class.
-        y = y * delta
+        if _nx.isscalar(delta):
+            y = y * delta
+        else:
+            y = _nx.multiply.outer(y, delta)
 
     y += start
 
