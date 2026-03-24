@@ -1,0 +1,6 @@
+
+1.跳过整数输入场景下不必要的 step == 0 检查。
+2.把整数 fast path 的判断位置后移，避免拖慢 scalar 路径。
+3.整数数组路径里复用 delta，少建一个临时数组。
+4.把非标量路径的 reshape + broadcast multiply 改成 multiply.outer(...)。
+5.给 endpoint=True and num==2 加直接构造 fast path
