@@ -4,3 +4,566 @@
 3.整数数组路径里复用 delta，少建一个临时数组。
 4.把非标量路径的 reshape + broadcast multiply 改成 multiply.outer(...)。
 5.给 endpoint=True and num==2 加直接构造 fast path
+
+
+
+
+下面这版我按 **“真正拿来长期用 OpenCode”** 的思路写，不走功能罗列，而是讲 **怎么配、怎么用、怎么避坑、怎么防止 agent 乱跑**。
+
+我先说结论：**OpenCode 最强的不是“会写代码”，而是“把你的项目规则、工具链、命令模板、外部工具接起来之后，变成一个可控的工程代理”**。官方现在已经把旧的 `tools` 布尔开关并进 `permission` 体系里了；配置是分层合并的；`/init` 会生成或更新 `AGENTS.md`；Plan/Build/General/Explore 各自定位也很清晰。你真正该优先花时间的，是 `AGENTS.md`、`permission`、`commands/`、`formatter`、`LSP`、再加少量 MCP，而不是一上来装一堆外部工具。([OpenCode][1])
+
+## 先记住这套工作流
+
+**1. 先 `/init`，再开工。**
+官方建议用 `/init` 为项目创建或更新 `AGENTS.md`，并把它提交到 Git。这个文件相当于 Cursor rules 的 OpenCode 版本，能把项目结构、代码规范、目录约定、测试方式这些长期规则塞进上下文；另外 `instructions` 还可以把 `CONTRIBUTING.md`、内部规范文档、`.cursor/rules/*.md` 合并进来。([OpenCode][2])
+
+**2. 先 Plan，后 Build。**
+OpenCode 内置两个主代理：`Build` 是全工具开发模式，`Plan` 是受限分析模式。官方明确写了：Plan 默认把 **文件修改** 和 **bash** 都设成 `ask`，适合先做方案、审查、分解，不直接改代码。这个模式就是最自然的“防手滑”机制。([OpenCode][3])
+
+**3. 用 `@文件` 和 `!命令`，不要让它“自己猜整个仓库”。**
+TUI 支持 `@` 模糊引用文件，文件内容会自动加入对话；支持用 `!` 直接跑 shell 命令并把输出加入上下文。比起“帮我看看这个项目怎么实现”，更有效的是：`@src/foo.ts 解释这里的鉴权流程`，或者 `!git diff --name-only main...HEAD` 后让它只看变更。([OpenCode][2])
+
+**4. 长会话及时 compact。**
+TUI 内置 `/compact`（别名 `/summarize`）来压缩当前会话；同时系统里还有隐藏的 Compaction 代理，长上下文时会自动参与压缩。CLI 里也有 `OPENCODE_DISABLE_AUTOCOMPACT` 这个环境变量，说明自动压缩本来就是系统设计的一部分。([OpenCode][2])
+
+**5. 一切变更最好在 Git 仓库里做。**
+`/undo` 和 `/redo` 不只是撤回聊天，还会还原文件修改；官方明确说它们底层依赖 Git，所以项目最好是 Git 仓库。([OpenCode][2])
+
+---
+
+## 你说的“任务躲开”，我建议这样理解
+
+我把“任务躲开”理解成两件事：
+
+### A. 躲开“自动开太多子任务”
+
+OpenCode 的权限里有一个专门的 `task`，就是 **启动子代理**。内置子代理里，`General` 是全权限多步骤通用子代理，`Explore` 是只读探索子代理。也就是说，**你完全可以把“会不会自动分叉一堆子任务”这件事收回来管**：把 `task` 设成 `ask` 或 `deny`。([OpenCode][1])
+
+### B. 躲开“一次交给 agent 太大一坨事”
+
+OpenCode 官方的代理设计已经在暗示最佳实践：
+
+* `Plan`：分析、规划、审查，不改。
+* `Build`：真正动手。
+* `Explore`：只读探索。
+  所以你最稳的方式不是“把整个需求一次丢进去”，而是三段式：
+
+1. `Plan` 先做方案。
+2. 让它只改一个文件夹或一个模块。
+3. 改完后单独跑测试/审查。
+   这会明显减少上下文漂移和错误修改。([OpenCode][3])
+
+### C. 真正的“防失控”配置
+
+最有用的是这四个：
+
+* `permission["*"] = "ask"`：默认所有危险动作先问。
+* `task = "ask"`：防止随便开子代理。
+* `bash` 细粒度白名单：只放行安全命令前缀。
+* `edit` 对敏感路径单独 deny，比如 `.env`、部署脚本、生产配置。
+  官方权限支持全局规则、通配符、按工具细分规则，还支持 `doom_loop`（同一调用重复 3 次时触发）和 `external_directory`（访问工作区外路径）这两层护栏。([OpenCode][1])
+
+---
+
+## 最值得先配的 7 个东西
+
+### 1) `permission`
+
+这是第一优先级。官方已经明确：旧 `tools` 逻辑并进 `permission` 了，而且默认是比较宽松的，多数权限默认 `allow`。如果你想稳，应该反过来，自己收紧。([OpenCode][1])
+
+我建议的起步思路：
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "*": "ask",
+    "read": "allow",
+    "list": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "task": "ask",
+    "webfetch": "allow",
+    "websearch": "allow",
+
+    "bash": {
+      "*": "ask",
+      "git status*": "allow",
+      "git diff*": "allow",
+      "git log*": "allow",
+      "rg *": "allow",
+      "grep *": "allow",
+      "find *": "allow",
+      "pnpm test*": "ask",
+      "npm test*": "ask",
+      "pytest *": "ask",
+      "git push *": "deny",
+      "rm *": "deny"
+    },
+
+    "edit": {
+      "*": "ask",
+      "*.env": "deny",
+      "*.env.*": "deny",
+      "package-lock.json": "ask",
+      "pnpm-lock.yaml": "ask"
+    }
+  }
+}
+```
+
+这不是官方原样模板，是我按官方权限模型给你的“稳健默认值”。它利用了官方支持的全局规则、命令模式匹配、路径匹配和 `task`/`edit`/`bash` 细分。([OpenCode][1])
+
+### 2) `AGENTS.md` + `instructions`
+
+`AGENTS.md` 适合放“人类团队也认可”的长期规则，`instructions` 适合把现成文档挂进去。官方也支持从多个位置读取 AGENTS/CLAUDE 兼容文件，并支持把外部文档路径、glob 甚至远程 URL 合并进规则里。([OpenCode][4])
+
+我建议 `AGENTS.md` 至少写这几块：
+
+* 目录结构
+* 包管理器和启动命令
+* 测试命令
+* lint/format 规则
+* 哪些目录能改，哪些只能读
+* PR 风格和提交风格
+
+### 3) `commands/`
+
+这是被很多人低估的。官方支持在 `.opencode/commands/` 或全局 `~/.config/opencode/commands/` 里放 markdown 命令文件；支持 `$ARGUMENTS`、`$1/$2...`、`!命令输出`、`@文件引用`。这意味着你可以把重复工作做成“专用工作流按钮”。([OpenCode][5])
+
+我最推荐你先建这 4 个：
+
+`/plan-feature`
+
+```md
+---
+description: Plan a feature before editing
+agent: plan
+---
+Read the relevant files first.
+Produce:
+1. goal
+2. affected files
+3. risks
+4. implementation steps
+5. test plan
+
+Feature request:
+$ARGUMENTS
+```
+
+`/review-diff`
+
+```md
+---
+description: Review current diff
+agent: plan
+---
+Review the current changes.
+
+Changed files:
+!`git diff --name-only`
+
+Full diff:
+!`git diff --minimal`
+
+Return:
+- bugs
+- risky changes
+- missing tests
+- rollback concerns
+```
+
+`/fix-tests`
+
+```md
+---
+description: Run tests and fix failures
+agent: build
+---
+Run the test suite, inspect failures, and fix only the failing tests or directly related code.
+
+Test output:
+!`pnpm test`
+```
+
+`/explain-file`
+
+```md
+---
+description: Explain a file with context
+agent: plan
+---
+Explain this file:
+@$ARGUMENTS
+
+Focus on:
+- purpose
+- inputs/outputs
+- side effects
+- dependencies
+```
+
+### 4) `formatter`
+
+OpenCode 会在写入或编辑文件后自动跑格式化；如果项目里已经有 `prettier`、`biome`、`ruff`、`gofmt` 等，它会尽量按项目习惯来。最好的做法不是“额外再造一套”，而是 **让 OpenCode 跟你现有 formatter 对齐**。([OpenCode][6])
+
+如果你项目里 formatter 经常和 lint-fix 打架，就显式覆盖：
+
+```json
+{
+  "formatter": {
+    "prettier": {
+      "command": ["npx", "prettier", "--write", "$FILE"],
+      "extensions": [".js", ".ts", ".jsx", ".tsx", ".json", ".md"]
+    }
+  }
+}
+```
+
+如果暂时不想让它自动格式化，可以全局 `formatter: false`，官方支持。([OpenCode][6])
+
+### 5) `lsp`
+
+LSP 是第二优先级。官方说 LSP 会把诊断信息反馈给模型，很多主流语言的 LSP 都支持，部分还能自动下载；也可以用环境变量禁掉自动下载。这个配置对“让 agent 改完代码后更像 IDE 一样知道有没有红线”很有价值。([OpenCode][7])
+
+我建议：
+
+* TS/JS 项目，先把 `typescript` / `eslint` 配好。
+* Python 项目，先把 `pyright` 或现有 LSP 配好。
+* 不要一开始就开实验性 LSP tool，先让基础诊断工作起来。
+
+### 6) `small_model`
+
+官方支持 `model` 和 `small_model`。`small_model` 用于标题生成等轻量任务，能省钱。长期用下来，这个配置非常值。([OpenCode][8])
+
+### 7) `EDITOR`
+
+`/editor` 和 `/export` 都依赖 `EDITOR` 环境变量。你如果平时是 VS Code / Cursor / Zed，最好直接设成带 `--wait` 的版本，不然体验会很别扭。([OpenCode][2])
+
+```bash
+export EDITOR="code --wait"
+```
+
+---
+
+## 常见好用工具配置：我建议只装这几类
+
+### 第一层：先吃满内置工具
+
+内置就已经有 `read / edit / write / bash / grep / glob / list / skill / todo / webfetch / websearch` 等，而且 `grep/glob/list` 底层是 ripgrep，默认还会遵循 `.gitignore`。很多人上来狂装 MCP，其实先把这层玩熟更重要。([OpenCode][9])
+
+### 第二层：MCP 只装“高频且高收益”的
+
+官方自己也提醒了：**MCP 会占上下文，某些服务器（比如 GitHub MCP）特别吃 token，很容易把上下文撑爆**。所以原则不是“越多越强”，而是“越少越准”。官方还支持把 MCP 全局禁用、只对某个 agent 打开。([OpenCode][10])
+
+我建议的常见组合：
+
+**1. Context7：文档检索类首选**
+官方示例里就给了 Context7，用来搜文档；还建议可以在 AGENTS.md 里直接写“需要搜文档时优先用 context7”。这个很适合框架、库、SDK 用法查询。([OpenCode][11])
+
+```json
+{
+  "mcp": {
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp"
+    }
+  }
+}
+```
+
+**2. Sentry：线上问题排查**
+如果你有 Sentry，官方给了标准 MCP 配法，还支持 OAuth 认证。这个比“把报错截图贴给 agent”靠谱太多。([OpenCode][11])
+
+**3. Grep by Vercel：搜 GitHub 代码例子**
+当你“知道某事有人做过，但不确定正确写法”时很好用。官方示例名叫 `gh_grep`。([OpenCode][11])
+
+```json
+{
+  "mcp": {
+    "gh_grep": {
+      "type": "remote",
+      "url": "https://mcp.grep.app"
+    }
+  }
+}
+```
+
+### 第三层：Custom Tools
+
+官方支持在 `.opencode/tools/` 或 `~/.config/opencode/tools/` 里定义自定义工具，工具定义用 TS/JS，但内部可以调任何语言。这个最适合做“你团队自己的小能力”，比如：
+
+* 查本地数据库
+* 跑一段内部脚本
+* 调某个私有 API
+* 统一触发某套测试或检查流程
+  它比 MCP 更适合“你自己的本地工程能力”。([OpenCode][12])
+
+---
+
+## 一套我建议直接照抄的“稳健配置”
+
+### 全局配置：`~/.config/opencode/opencode.json`
+
+适合放你个人偏好。官方配置是分层合并的：远程组织默认 → 全局 → 自定义路径 → 项目 `opencode.json` → `.opencode` 目录 → 内联覆盖；项目配置会覆盖全局。([OpenCode][8])
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  "model": "anthropic/claude-sonnet-4-5",
+  "small_model": "anthropic/claude-haiku-4-5",
+
+  "permission": {
+    "*": "ask",
+    "read": "allow",
+    "list": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "task": "ask",
+    "webfetch": "allow",
+    "websearch": "allow",
+
+    "bash": {
+      "*": "ask",
+      "git status*": "allow",
+      "git diff*": "allow",
+      "git log*": "allow",
+      "rg *": "allow",
+      "grep *": "allow",
+      "find *": "allow",
+      "git push *": "deny",
+      "rm *": "deny"
+    },
+
+    "edit": {
+      "*": "ask",
+      "*.env": "deny",
+      "*.env.*": "deny"
+    }
+  },
+
+  "instructions": [
+    "CONTRIBUTING.md",
+    ".cursor/rules/*.md"
+  ]
+}
+```
+
+### 项目配置：`opencode.json`
+
+适合放项目约束、formatter、项目专属 agent。
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  "formatter": {
+    "prettier": {
+      "command": ["npx", "prettier", "--write", "$FILE"],
+      "extensions": [".js", ".jsx", ".ts", ".tsx", ".json", ".md"]
+    }
+  },
+
+  "agent": {
+    "review": {
+      "description": "Review code without editing files",
+      "model": "anthropic/claude-sonnet-4-5",
+      "prompt": "You are a strict code reviewer. Never modify files.",
+      "mode": "subagent",
+      "permission": {
+        "edit": "deny",
+        "bash": "ask",
+        "task": "deny"
+      }
+    }
+  }
+}
+```
+
+---
+
+## 高频技巧，很多人没用好
+
+### 1. Tab 切换主代理，别死用一个
+
+默认 `Tab` 可以在主代理之间切换，`Build` 和 `Plan` 的边界非常值得利用。官方还说 leader 默认是 `ctrl+x`，很多动作有快捷键。([OpenCode][3])
+
+你至少记这几个：
+
+* `Tab`：Build / Plan 切换
+* `ctrl+x c`：compact
+* `ctrl+x n`：新会话
+* `ctrl+x l`：会话列表
+* `ctrl+x m`：模型列表
+* `ctrl+x e`：外部编辑器
+* `ctrl+x u / r`：undo / redo ([OpenCode][2])
+
+### 2. `/thinking` 只是显示推理，不是开关推理能力
+
+官方明确写了：`/thinking` 只控制 thinking block 是否显示；真正切换模型变体/推理能力，要用 `ctrl+t`。这个细节很多人会误解。([OpenCode][2])
+
+### 3. 会话不要一个聊到底
+
+一个 feature 一条会话；一个 review 一条会话；一个 bugfix 一条会话。
+长会话一旦开始反复改方向，就 `/compact` 或者直接 `/new`。你会明显感觉 agent 更稳。这个属于经验建议，但和官方的 compact / sessions / summary 设计是同方向的。([OpenCode][2])
+
+### 4. 把“问题”改写成“可验收任务”
+
+不要说：
+
+> 帮我把这个模块重构一下
+
+要说：
+
+> 先分析 `@src/modules/auth/*`，找出重复逻辑；只输出方案，不改代码。
+> 然后只修改 `@src/modules/auth/token.ts` 和对应测试。
+> 修改后运行 `pnpm test auth`，不要改无关文件。
+
+这种说法会让 Plan/Build、权限系统、命令模板都更好发挥。
+
+### 5. 善用 `.ignore`
+
+官方说明 `grep/glob/list` 底层跟 ripgrep，默认遵循 `.gitignore`。如果你偶尔需要把 normally ignored 的目录重新纳入搜索，可以在项目根建 `.ignore` 显式放开。([OpenCode][9])
+
+---
+
+## 容易踩的坑
+
+**坑 1：把 MCP 当插件市场猛装。**
+结果就是上下文爆、响应慢、token 贵。官方已经明确提醒 MCP 尤其是某些远程服务会显著吃上下文。([OpenCode][10])
+
+**坑 2：还在用旧 `tools` 习惯。**
+现在应优先用 `permission`。`tools` 旧方式仍兼容，但不该作为主配置思路。([OpenCode][1])
+
+**坑 3：不给项目写规则，指望 agent 自动懂你的团队规范。**
+`AGENTS.md`、`instructions`、`commands/`、`skills/` 才是长期收益最大的东西。官方的 skill 机制就是为“按需加载可复用行为”准备的。([OpenCode][13])
+
+**坑 4：把 secrets 直接写进配置。**
+官方支持 `{env:VAR}` 和 `{file:path}` 变量替换，应该把 API key 放环境变量或单独文件里。([OpenCode][8])
+
+**坑 5：Windows 直接裸跑。**
+官方中文简介里明确推荐 Windows 上优先用 WSL，这样兼容性和体验更好。([OpenCode][14])
+
+---
+
+## 我个人给你的最终建议
+
+如果你现在要把 OpenCode 真正用顺，按这个顺序做：
+
+1. 装好 OpenCode，进 Git 仓库，跑 `/init`。([OpenCode][14])
+2. 先把 `permission` 收紧，尤其是 `task`、`bash`、`edit`。([OpenCode][1])
+3. 建 4 个常用命令：`/plan-feature`、`/review-diff`、`/fix-tests`、`/explain-file`。([OpenCode][5])
+4. 对齐项目 formatter 和 LSP。([OpenCode][6])
+5. MCP 最多先上 1 到 3 个：Context7、Sentry、Grep by Vercel 三选一或二。([OpenCode][11])
+6. 日常默认 `Plan -> Build -> Review` 三段式，不要一把梭。([OpenCode][3])
+
+你要的话，我下一条可以直接给你一份 **“开箱即用的 OpenCode 全家桶配置包”**：包括
+`opencode.json`、`AGENTS.md`、4 个高频 commands、2 个 skills、以及一个“防乱跑”的 review agent。
+
+[1]: https://opencode.ai/docs/zh-cn/permissions/ "权限 | OpenCode"
+[2]: https://opencode.ai/docs/tui/ "TUI | OpenCode"
+[3]: https://opencode.ai/docs/zh-cn/agents/ "代理 | OpenCode"
+[4]: https://opencode.ai/docs/zh-cn/rules/?utm_source=chatgpt.com "规则 | OpenCode"
+[5]: https://opencode.ai/docs/commands/ "Commands | OpenCode"
+[6]: https://opencode.ai/docs/zh-cn/formatters/ "格式化工具 | OpenCode"
+[7]: https://opencode.ai/docs/zh-cn/lsp/ "LSP 服务器 | OpenCode"
+[8]: https://opencode.ai/docs/zh-cn/config/ "配置 | OpenCode"
+[9]: https://opencode.ai/docs/zh-cn/tools/?utm_source=chatgpt.com "工具 | OpenCode"
+[10]: https://opencode.ai/docs/zh-cn/mcp-servers/ "MCP 服务器 | OpenCode"
+[11]: https://opencode.ai/docs/mcp-servers/ "MCP servers | OpenCode"
+[12]: https://opencode.ai/docs/zh-cn/custom-tools/ "自定义工具 | OpenCode"
+[13]: https://opencode.ai/docs/zh-cn/skills/?utm_source=chatgpt.com "代理技能 | OpenCode"
+[14]: https://opencode.ai/docs/zh-cn?utm_source=chatgpt.com "简介 | OpenCode"
+
+
+
+先说结论：**“多开”不是 Codex 做不到，反而是它现在主打的能力之一。**Codex App 官方就写了可跨项目并行跑多个线程，内置 worktree；Codex Cloud 也支持后台并行任务；CLI 还有 subagents 和 `/fork` 来并行分支思路。OpenCode 这边也能多会话、多子代理、多子会话切换，IDE 里还专门给了“新建会话”的快捷键。([OpenAI 开发者][1])
+
+你这题我给你一个最实用的版本：**OpenCode / Codex 高价值用法 + 真正的差异点**。
+
+## OpenCode 高价值使用技巧
+
+**1）先把基础三件套固定住：provider、model、AGENTS.md。**
+OpenCode 是开源 AI coding agent，能跑终端、桌面和 IDE；它官方文档写的是支持 **75+ LLM providers**，还能跑本地模型。我的建议是第一次进项目先 `/connect`，然后 `/models` 选模型，再 `/init` 生成 `AGENTS.md`，并把这个文件提交进仓库，让它长期记住项目规范。([OpenCode][2])
+
+**2）把“规划”和“动手”彻底分开。**
+OpenCode 内置 `Build` 和 `Plan` 两个主代理，`Build` 默认全工具，`Plan` 默认限制写文件和 bash，非常适合先让它出方案、再切回实现。平时遇到大改动，先 `Tab` 到 Plan；等方案对了，再切回 Build。配合 `@文件` 做模糊搜索，效率很高。([OpenCode][3])
+
+**3）把子代理当“并行打工人”来用。**
+OpenCode 内置 `General` 和 `Explore` 子代理：`Explore` 适合只读摸库，`General` 适合多步任务。你既可以手动 `@general` / `@explore`，也可以让主代理自动调用；子代理开出的子会话还能在父/子会话间来回切。这个很适合“一个在搜代码，一个在改代码”。([OpenCode][3])
+
+**4）把重复动作做成你自己的 slash command。**
+OpenCode 的自定义命令是它很强的一点。你可以在 `.opencode/commands/` 或全局目录里写 Markdown 命令，比如 `/test`、`/review`、`/component Button`，还能塞参数、指定 agent、指定 model。这个比每次重写 prompt 稳定得多。([OpenCode][4])
+
+**5）权限别全开，按命令模式配。**
+OpenCode 的 `permission` 很细，能按工具、按模式、甚至按命令模式做 `allow / ask / deny`。比如 `git *`、`npm *` 放行，`rm *` 一律 deny，编辑某些目录 allow、别的目录 deny。这样比“全自动 / 全手动”更实战。([OpenCode][5])
+
+**6）把 TUI 调成你顺手的“主力环境”。**
+OpenCode 的快捷键和主题都能配。默认 leader 是 `Ctrl+X`，`Ctrl+X` 然后 `n` 新会话；主题可自定义 JSON；IDE 里还能 `Cmd/Ctrl+Esc` 快速唤起，`Cmd/Ctrl+Shift+Esc` 直接再开一个新会话。你要是重度终端党，这些比模型本身还重要。([OpenCode][6])
+
+**7）高级玩法：把它当后端服务，而不只是聊天框。**
+OpenCode CLI 支持 `run`（非交互执行）、`serve`（无头 HTTP 服务）、`web`（本地浏览器版）、`attach`（TUI 连接远程后端），还支持 session list / export / import。你可以把它做成“本地 agent 基础设施”。这块 OpenCode 非常工程化。([OpenCode][7])
+
+**8）GitHub 自动化很适合团队内落地。**
+OpenCode 可以在 GitHub Issue / PR 评论里用 `/opencode` 或 `/oc` 触发，在你自己的 GitHub Actions runner 上跑；还能设定 `model: provider/model`。这对想把 agent 放在自家 CI 流水线里的人很有吸引力。([OpenCode][8])
+
+## Codex 高价值使用技巧
+
+**1）Codex 最适合“本地协作 + 云端委派”双线并行。**
+Codex CLI 是开源的 Rust 工具；CLI 和 IDE 扩展共享同一份 `config.toml`，你可以统一设置 model/provider、approval policy、sandbox。常用的三个入口是：本地 CLI、IDE 侧边栏、Cloud 任务。([OpenAI 开发者][9])
+
+**2）本地高频命令先记住这几个：`/model`、`/permissions`、`/plan`、`/review`、`/diff`、`/fork`。**
+`/model` 切模型，`/permissions` 控权限，`/plan` 先出方案，`/review` 做二次 code review，`/diff` 看改动，`/fork` 开并行分支。Codex 还支持 `@file`、截图/设计稿输入、子代理并行。你把这套动作串起来后，Codex 会更像一个完整的工程助手，而不是单次问答。([OpenAI 开发者][10])
+
+**3）审批模式别嫌麻烦，选对了会很好用。**
+Codex 本地默认是受沙箱保护的：默认无网络、写权限限当前 workspace。`Auto` 模式可在工作目录里自动读写/跑命令；`Read-only` 适合只读分析。对于陌生仓库，先只读；熟悉后再切 Auto。([OpenAI 开发者][11])
+
+**4）长任务尽量扔给 Cloud。**
+Codex Cloud 可以后台跑任务，而且支持并行；CLI 里还能 `codex cloud exec` 提交，甚至用 `--attempts` 做 best-of-N。App 里再结合 worktrees，就能同一项目多线程改不同分支、互不干扰。([OpenAI 开发者][12])
+
+**5）Codex 的强项不是“更像终端工具”，而是“更像完整产品”。**
+Codex App 官方特性包括并行线程、内置 Git 工具、worktrees、skills、automations、每线程终端、和 IDE 共享上下文。你要的是“少折腾、统一体验、能委派后台任务”，Codex 的产品形态更成熟。([OpenAI 开发者][13])
+
+**6）Web 搜索和外部工具接入也别忽略。**
+Codex 本地任务默认启用 web search（默认 cached 模式），还能配 MCP；skills 在 CLI、IDE、App 里通用。做依赖升级、查文档、跨工具串联时很好用。([OpenAI 开发者][14])
+
+## OpenCode 相比 Codex，哪些地方更强，或者 Codex 现在没它顺手
+
+**1）“多开”不是。**
+再强调一次：**多开不是 OpenCode 的独占优势。**Codex 官方在 App、Cloud、subagents、`/fork` 这些层面都支持并行。你如果只拿“多开”当判断标准，Codex 不吃亏。([OpenAI 开发者][1])
+
+**2）OpenCode 真正明显强的是“可折腾度”和“本地控制感”。**
+OpenCode 对 provider/model 的支持更开放，官方直接写了 75+ providers 和本地模型；还能改 provider 的 `baseURL`、自定义 commands、主题、按规则配权限、跑 `serve/web/attach`。如果你喜欢自己拼工作流、接代理服务、走 OpenRouter/本地模型/代理网关，OpenCode 通常更顺手。Codex 也能在本地客户端里设 default model/provider，甚至文档写明可指向兼容 Chat Completions / Responses API 的 model/provider，但它整体仍更偏“统一产品体验”而不是“终端黑客玩具”。([OpenCode][15])
+
+**3）有一个很具体的限制：Codex Cloud 目前不能改默认模型。**
+官方文档明确写了：**Codex cloud tasks 当前不能更改默认模型**。如果你很看重“不同任务切不同 provider/model”，尤其是云端任务也要自由切，这点上 OpenCode 更灵活；至少在 OpenCode 本地和 GitHub workflow 里，`provider/model` 都是显式可配的。([OpenAI 开发者][16])
+
+**4）如果你要“在自己基础设施里跑 agent”，OpenCode 更像工具链；如果你要“开箱即用的产品闭环”，Codex 更像成品。**
+OpenCode 的 GitHub 集成跑在你自己的 GitHub Actions runner；Codex Cloud 跑在 OpenAI 管理的隔离容器里。前者更适合强调可控、可定制、可嵌入自家 CI；后者更适合强调委派、后台执行、统一 UI 和 review 流程。([OpenCode][8])
+
+## 一句话建议
+
+你是**重度终端党 / 爱折腾 / 多 provider / 本地模型 / 自己拼工作流**：选 **OpenCode**。([OpenCode][15])
+
+你是**想少配置、直接在 IDE + App + Cloud 之间切换、把长任务丢后台、用 worktree 并行推进**：选 **Codex**。([OpenAI 开发者][13])
+
+你要的话，我可以下一条直接给你一份：**“OpenCode vs Codex 实战快捷键/命令速查表”**，按“新手、进阶、团队协作”三档整理。
+
+[1]: https://developers.openai.com/codex/app/features?utm_source=chatgpt.com "Features – Codex app | OpenAI Developers"
+[2]: https://opencode.ai/docs/zh-cn?utm_source=chatgpt.com "简介 | OpenCode"
+[3]: https://opencode.ai/docs/zh-cn/agents/ "代理 | OpenCode"
+[4]: https://opencode.ai/docs/commands/ "Commands | OpenCode"
+[5]: https://opencode.ai/docs/permissions/ "Permissions | OpenCode"
+[6]: https://opencode.ai/docs/keybinds/ "Keybinds | OpenCode"
+[7]: https://opencode.ai/docs/zh-cn/cli/?utm_source=chatgpt.com "CLI | OpenCode"
+[8]: https://opencode.ai/docs/zh-cn/github/?utm_source=chatgpt.com "GitHub | OpenCode"
+[9]: https://developers.openai.com/codex/cli "CLI – Codex | OpenAI Developers"
+[10]: https://developers.openai.com/codex/cli/slash-commands "Slash commands in Codex CLI | OpenAI Developers"
+[11]: https://developers.openai.com/codex/agent-approvals-security "Agent approvals & security – Codex | OpenAI Developers"
+[12]: https://developers.openai.com/codex/cloud "Web – Codex | OpenAI Developers"
+[13]: https://developers.openai.com/codex/app "App – Codex | OpenAI Developers"
+[14]: https://developers.openai.com/codex/config-basic "Config basics – Codex | OpenAI Developers"
+[15]: https://opencode.ai/docs/providers/ "Providers | OpenCode"
+[16]: https://developers.openai.com/codex/models "Models – Codex | OpenAI Developers"
