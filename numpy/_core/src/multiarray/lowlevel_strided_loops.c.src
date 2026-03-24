@@ -361,6 +361,38 @@ _swap_pair_strided_to_strided(
 }
 
 static int
+_copy_small_contig(char *dst, char *src, npy_intp total_bytes)
+{
+    switch (total_bytes) {
+        case 0:
+            return 1;
+        case 1:
+            memcpy(dst, src, 1);
+            return 1;
+        case 2:
+            memcpy(dst, src, 2);
+            return 1;
+        case 4:
+            memcpy(dst, src, 4);
+            return 1;
+        case 8:
+            memcpy(dst, src, 8);
+            return 1;
+        case 16:
+            memcpy(dst, src, 16);
+            return 1;
+        case 24:
+            memcpy(dst, src, 24);
+            return 1;
+        case 32:
+            memcpy(dst, src, 32);
+            return 1;
+    }
+    return 0;
+}
+
+
+static int
 _contig_to_contig(
         PyArrayMethod_Context *context, char *const *args,
         const npy_intp *dimensions, const npy_intp *NPY_UNUSED(strides),
@@ -376,32 +408,9 @@ _contig_to_contig(
      * Use constant-size memcpy cases so the compiler can inline them instead
      * of paying the full memmove dispatch cost.
      */
-    if (total_bytes <= 32 && (dst + total_bytes <= src || src + total_bytes <= dst)) {
-        switch (total_bytes) {
-            case 0:
-                return 0;
-            case 1:
-                memcpy(dst, src, 1);
-                return 0;
-            case 2:
-                memcpy(dst, src, 2);
-                return 0;
-            case 4:
-                memcpy(dst, src, 4);
-                return 0;
-            case 8:
-                memcpy(dst, src, 8);
-                return 0;
-            case 16:
-                memcpy(dst, src, 16);
-                return 0;
-            case 24:
-                memcpy(dst, src, 24);
-                return 0;
-            case 32:
-                memcpy(dst, src, 32);
-                return 0;
-        }
+    if ((dst + total_bytes <= src || src + total_bytes <= dst) &&
+            _copy_small_contig(dst, src, total_bytes)) {
+        return 0;
     }
 
     memmove(dst, src, total_bytes);
@@ -1672,6 +1681,10 @@ mapiter_@name@(
     char **outer_ptrs = mit->outer_ptrs;
     npy_intp *outer_strides = mit->outer_strides;
     PyArrayObject *array= mit->array;
+#if @isget@
+    npy_bool trivial_subspace_copy = NPY_FALSE;
+    npy_intp copy_itemsize = 0;
+#endif
 
     /* Fill constant information */
 #if @isget@
@@ -1833,6 +1846,14 @@ mapiter_@name@(
             */
             is_subiter_trivial = 1;
         }
+#if @isget@
+        if (!needs_api && is_subiter_trivial &&
+                PyArray_DESCR(array) == PyArray_DESCR(mit->extra_op)) {
+            copy_itemsize = PyArray_ITEMSIZE(array);
+            trivial_subspace_copy = subspace_strides[0] == copy_itemsize &&
+                    subspace_strides[1] == copy_itemsize;
+        }
+#endif
 /**begin repeat1
  * #one_iter = 1, 0#
  * #num_fancy = 1, num_fancy#
@@ -1924,7 +1945,14 @@ mapiter_@name@(
                 do {
 
 #if @isget@
-                    if (NPY_UNLIKELY(cast_info->func(&cast_info->context,
+                    if (trivial_subspace_copy) {
+                        npy_intp total_bytes = copy_itemsize * *counter;
+                        if (!_copy_small_contig(
+                                subspace_ptrs[1], subspace_ptrs[0], total_bytes)) {
+                            memcpy(subspace_ptrs[1], subspace_ptrs[0], total_bytes);
+                        }
+                    }
+                    else if (NPY_UNLIKELY(cast_info->func(&cast_info->context,
                             subspace_ptrs, counter, subspace_strides,
                             cast_info->auxdata) < 0)) {
                         NPY_END_THREADS;
