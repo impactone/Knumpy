@@ -138,6 +138,24 @@ def linspace(start, stop, num=50, endpoint=True, retstep=False, dtype=None,
 
     # Use `dtype=type(dt)` to enforce a floating point evaluation:
     delta = np.subtract(stop, start, dtype=type(dt))
+    if endpoint and num == 2:
+        y = _nx.empty((2,) + _nx.shape(delta), dtype=dt)
+        y[0, ...] = start
+        y[1, ...] = stop
+        step = delta
+
+        if axis != 0:
+            y = _nx.moveaxis(y, 0, axis)
+
+        if integer_dtype:
+            _nx.floor(y, out=y)
+
+        y = conv.wrap(y.astype(dtype, copy=False))
+        if retstep:
+            return y, step
+        else:
+            return y
+
     y = _nx.arange(0, num, dtype=dt, device=device)
 
     # In-place multiplication y *= delta/div is faster, but prevents
