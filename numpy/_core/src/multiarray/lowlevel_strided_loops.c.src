@@ -1684,6 +1684,7 @@ mapiter_@name@(
 #if @isget@
     npy_bool trivial_subspace_copy = NPY_FALSE;
     npy_intp copy_itemsize = 0;
+    npy_intp trivial_subspace_bytes = 0;
 #endif
 
     /* Fill constant information */
@@ -1852,6 +1853,7 @@ mapiter_@name@(
             copy_itemsize = PyArray_ITEMSIZE(array);
             trivial_subspace_copy = subspace_strides[0] == copy_itemsize &&
                     subspace_strides[1] == copy_itemsize;
+            trivial_subspace_bytes = copy_itemsize * *counter;
         }
 #endif
 /**begin repeat1
@@ -1888,6 +1890,19 @@ mapiter_@name@(
 
                     self_ptr += indval * fancy_strides[i];
                 }
+
+#if @isget@
+                if (trivial_subspace_copy) {
+                    if (!_copy_small_contig(
+                            mit->extra_op_ptrs[0], self_ptr,
+                            trivial_subspace_bytes)) {
+                        memcpy(mit->extra_op_ptrs[0], self_ptr,
+                               trivial_subspace_bytes);
+                    }
+                    mit->extra_op_next(mit->extra_op_iter);
+                    continue;
+                }
+#endif
 
                 /*
                  * Resetting is slow, so try to avoid resetting
@@ -1945,14 +1960,7 @@ mapiter_@name@(
                 do {
 
 #if @isget@
-                    if (trivial_subspace_copy) {
-                        npy_intp total_bytes = copy_itemsize * *counter;
-                        if (!_copy_small_contig(
-                                subspace_ptrs[1], subspace_ptrs[0], total_bytes)) {
-                            memcpy(subspace_ptrs[1], subspace_ptrs[0], total_bytes);
-                        }
-                    }
-                    else if (NPY_UNLIKELY(cast_info->func(&cast_info->context,
+                    if (NPY_UNLIKELY(cast_info->func(&cast_info->context,
                             subspace_ptrs, counter, subspace_strides,
                             cast_info->auxdata) < 0)) {
                         NPY_END_THREADS;
