@@ -1871,6 +1871,38 @@ mapiter_@name@(
                 NPY_BEGIN_THREADS;
             }
 
+#if @isget@
+            if (trivial_subspace_copy) {
+                do {
+                    char * self_ptr = baseoffset;
+                    for (i=0; i < @num_fancy@; i++) {
+                        npy_intp indval = *((npy_intp*)outer_ptrs[i]);
+
+#if @isget@ && @one_iter@
+                        if (check_and_adjust_index(&indval, fancy_dims[i],
+                                                   iteraxis, _save) < 0 ) {
+                            return -1;
+                        }
+#else
+                        if (indval < 0) {
+                            indval += fancy_dims[i];
+                        }
+#endif
+
+                        self_ptr += indval * fancy_strides[i];
+                    }
+
+                    if (!_copy_small_contig(
+                            mit->extra_op_ptrs[0], self_ptr,
+                            trivial_subspace_bytes)) {
+                        memcpy(mit->extra_op_ptrs[0], self_ptr,
+                               trivial_subspace_bytes);
+                    }
+                    mit->extra_op_next(mit->extra_op_iter);
+                } while (mit->outer_next(mit->outer));
+            }
+            else {
+#endif
             /* Outer iteration (safe because mit->size != 0) */
             do {
                 char * self_ptr = baseoffset;
@@ -1890,19 +1922,6 @@ mapiter_@name@(
 
                     self_ptr += indval * fancy_strides[i];
                 }
-
-#if @isget@
-                if (trivial_subspace_copy) {
-                    if (!_copy_small_contig(
-                            mit->extra_op_ptrs[0], self_ptr,
-                            trivial_subspace_bytes)) {
-                        memcpy(mit->extra_op_ptrs[0], self_ptr,
-                               trivial_subspace_bytes);
-                    }
-                    mit->extra_op_next(mit->extra_op_iter);
-                    continue;
-                }
-#endif
 
                 /*
                  * Resetting is slow, so try to avoid resetting
@@ -1980,6 +1999,9 @@ mapiter_@name@(
 
                 mit->extra_op_next(mit->extra_op_iter);
             } while (mit->outer_next(mit->outer));
+#if @isget@
+            }
+#endif
             NPY_END_THREADS;
         }
 /**end repeat1**/
