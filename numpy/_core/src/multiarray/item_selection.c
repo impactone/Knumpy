@@ -34,6 +34,17 @@
 #include "simd/simd.h"
 
 static NPY_GCC_OPT_3 inline int
+take_copy_chunk24(char *dst, char *src, npy_intp total_bytes)
+{
+    if (total_bytes == 24) {
+        memcpy(dst, src, 24);
+        return 1;
+    }
+    return 0;
+}
+
+
+static NPY_GCC_OPT_3 inline int
 npy_fasttake_impl(
         char *dest, char *src, const npy_intp *indices,
         npy_intp n, npy_intp m, npy_intp max_item,
@@ -83,7 +94,9 @@ npy_fasttake_impl(
                         }
                     }
                     else {
-                        memcpy(dest, tmp_src, chunk);
+                        if (!take_copy_chunk24(dest, tmp_src, chunk)) {
+                            memcpy(dest, tmp_src, chunk);
+                        }
                     }
                     dest += chunk;
                 }
@@ -116,7 +129,9 @@ npy_fasttake_impl(
                         }
                     }
                     else {
-                        memcpy(dest, tmp_src, chunk);
+                        if (!take_copy_chunk24(dest, tmp_src, chunk)) {
+                            memcpy(dest, tmp_src, chunk);
+                        }
                     }
                     dest += chunk;
                 }
@@ -145,7 +160,9 @@ npy_fasttake_impl(
                         }
                     }
                     else {
-                        memcpy(dest, tmp_src, chunk);
+                        if (!take_copy_chunk24(dest, tmp_src, chunk)) {
+                            memcpy(dest, tmp_src, chunk);
+                        }
                     }
                     dest += chunk;
                 }
