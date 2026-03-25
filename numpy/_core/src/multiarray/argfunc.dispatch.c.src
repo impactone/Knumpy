@@ -144,6 +144,24 @@ simd_@func@_@sfx@(npyv_lanetype_@sfx@ *ip, npy_intp len)
         len0 = NPY_MAX_UINT32;
     }
 #endif
+#if @is_fp@
+    npyv_@sfx@ acc_equal = npyv_setall_@sfx@(s_acc);
+    for (npy_intp n = len0 & -vstep; i < n; i += vstep) {
+        npyv_@sfx@ a = npyv_load_@sfx@(ip + i);
+        npyv_@bsfx@ same = npyv_cmpeq_@sfx@(a, acc_equal);
+        npyv_@bsfx@ nnan = npyv_notnan_@sfx@(a);
+        if (!npyv_all_@bsfx@(npyv_and_@bsfx@(same, nnan))) {
+            goto general_@func@;
+        }
+    }
+    for (; i < len; ++i) {
+        if (!(ip[i] == s_acc)) {
+            goto general_@func@;
+        }
+    }
+    return 0;
+general_@func@:
+#endif
     // create index for vector indices
     npyv_lanetype_@usfx@ d_vindices[npyv_nlanes_@sfx@*4];
     for (int vi = 0; vi < wstep; ++vi) {
