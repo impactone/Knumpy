@@ -150,7 +150,13 @@ npyv_pack_isinf_f32(npyv_f32 v0, npyv_f32 v1, npyv_f32 v2, npyv_f32 v3)
 NPY_FINLINE npyv_b64
 _npyv_isinf_f64(npyv_f64 v)
 {
-#if defined(NPY_HAVE_NEON)
+#if defined(NPY_HAVE_NEON) && defined(__aarch64__)
+    // Clear the sign bit and compare the remaining bits against the exact
+    // infinity bit pattern so NaNs are excluded without extra FP work.
+    const npyv_u64 exp_mask = npyv_setall_u64(0xffe0000000000000);
+    npyv_u64 bits = npyv_shli_u64(npyv_reinterpret_u64_f64(v), 1);
+    return npyv_cmpeq_u64(bits, exp_mask);
+#elif defined(NPY_HAVE_NEON)
     // abs(v) > DBL_MAX
     const npyv_f64 fltmax = npyv_setall_f64(DBL_MAX);
     return vcagtq_f64(v, fltmax);
