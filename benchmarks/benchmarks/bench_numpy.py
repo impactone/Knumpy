@@ -396,6 +396,15 @@ class InvertBench(Benchmark):
         np.invert(self.x.astype('int64'))
 
 
+def _make_fp_predicate_input(shape, dtype):
+    x = np.random.rand(*shape).astype(dtype)
+    flat = x.reshape(-1)
+    flat[::257] = np.nan
+    flat[1::257] = np.inf
+    flat[2::257] = -np.inf
+    return x
+
+
 class IsnanBench(Benchmark):
     params = (
         [(1000, 10000), (100000,), (100, 1000), (10000, 10), (1000, 1000), (100, 10000), (1000000,)],
@@ -405,10 +414,40 @@ class IsnanBench(Benchmark):
     
     def setup(self, shape, dtype):
         np.random.seed(42)
-        self.x = np.random.rand(*shape).astype(dtype)
+        self.x = _make_fp_predicate_input(shape, dtype)
     
     def time_isnan(self, shape, dtype):
         np.isnan(self.x)
+
+
+class IsinfBench(Benchmark):
+    params = (
+        [(1000, 10000), (100000,), (100, 1000), (10000, 10), (1000, 1000), (100, 10000), (1000000,)],
+        ['float64']
+    )
+    param_names = ['shape', 'dtype']
+    
+    def setup(self, shape, dtype):
+        np.random.seed(42)
+        self.x = _make_fp_predicate_input(shape, dtype)
+    
+    def time_isinf(self, shape, dtype):
+        np.isinf(self.x)
+
+
+class IsfiniteBench(Benchmark):
+    params = (
+        [(1000, 10000), (100000,), (100, 1000), (10000, 10), (1000, 1000), (100, 10000), (1000000,)],
+        ['float64']
+    )
+    param_names = ['shape', 'dtype']
+    
+    def setup(self, shape, dtype):
+        np.random.seed(42)
+        self.x = _make_fp_predicate_input(shape, dtype)
+    
+    def time_isfinite(self, shape, dtype):
+        np.isfinite(self.x)
 
 
 class LexsortBench(Benchmark):
