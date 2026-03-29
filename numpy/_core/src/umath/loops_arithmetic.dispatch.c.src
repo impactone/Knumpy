@@ -341,6 +341,35 @@ vsx4_simd_divide_contig_@sfx@(char **args, npy_intp len)
 #endif
 #if NPY_BITSOF_@TYPE@ == 64 && defined(SIMD_DISABLE_DIV64_OPT)
     #undef TO_SIMD_SFX
+
+static inline npy_bool
+is_positive_power_of_two_@TYPE@(@type@ divisor)
+{
+    unsigned long long udivisor = (unsigned long long)divisor;
+    return divisor > 0 && (udivisor & (udivisor - 1)) == 0;
+}
+
+static inline @type@
+floor_divide_positive_power_of_two_@TYPE@(@type@ n, unsigned int shift)
+{
+    if (shift == 0 || n >= 0) {
+        return n >> shift;
+    }
+    return -1 - ((-1 - n) >> shift);
+}
+
+static inline void
+floor_divide_scalar2_positive_power_of_two_contig_@TYPE@(char **args, npy_intp len)
+{
+    @type@ *src = (@type@ *)args[0];
+    @type@ divisor = *(@type@ *)args[1];
+    @type@ *dst = (@type@ *)args[2];
+    unsigned int shift = (unsigned int)__builtin_ctzll((unsigned long long)divisor);
+
+    for (; len > 0; --len, ++src, ++dst) {
+        *dst = floor_divide_positive_power_of_two_@TYPE@(*src, shift);
+    }
+}
 #endif
 
 NPY_FINLINE @type@ floor_div_@TYPE@(const @type@ n, const @type@ d)
@@ -379,6 +408,12 @@ NPY_NO_EXPORT void NPY_CPU_DISPATCH_CURFX(@TYPE@_divide)
         }
         *((@type@ *)iop1) = io1;
     }
+#if NPY_BITSOF_@TYPE@ == 64 && defined(SIMD_DISABLE_DIV64_OPT)
+    else if (IS_BLOCKABLE_BINARY_SCALAR2(sizeof(@type@), sizeof(@type@)) &&
+             is_positive_power_of_two_@TYPE@(*(@type@ *)args[1])) {
+        floor_divide_scalar2_positive_power_of_two_contig_@TYPE@(args, dimensions[0]);
+    }
+#endif
 #if NPY_SIMD && defined(TO_SIMD_SFX)
 #if defined(NPY_HAVE_VSX4)
     // both arguments are arrays of the same size

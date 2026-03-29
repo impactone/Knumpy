@@ -673,6 +673,21 @@ class TestDivision:
         assert_equal(np.signbit(x // 1), 0)
         assert_equal(np.signbit((-x) // 1), 1)
 
+    def test_floor_division_positive_power_of_two_scalar_int64(self):
+        values = np.array([
+            np.iinfo(np.int64).min,
+            np.iinfo(np.int64).min + 1,
+            -17, -16, -15, -9, -8, -7, -1,
+            0, 1, 7, 8, 9, 15, 16, 17,
+            np.iinfo(np.int64).max - 1,
+            np.iinfo(np.int64).max,
+        ], dtype=np.int64)
+
+        for divisor in [1, 2, 8, 2**15]:
+            result = values // np.int64(divisor)
+            expected = np.array([int(value) // divisor for value in values], dtype=np.int64)
+            assert_array_equal(result, expected)
+
     @pytest.mark.skipif(hasattr(np.__config__, "blas_ssl2_info"),
             reason="gh-22982")
     @pytest.mark.skipif(IS_WASM, reason="fp errors don't work in wasm")
