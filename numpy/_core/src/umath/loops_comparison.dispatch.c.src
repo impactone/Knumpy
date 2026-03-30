@@ -71,6 +71,21 @@ static void simd_binary_@kind@_@sfx@(char **args, npy_intp len)
 #endif // @len@ >= 8
 
         // Pack the 'c' vectors into a single vector 'r'
+#if defined(__aarch64__) && @len@ == 64
+        {
+            const uint8x8_t truemask8 = vdup_n_u8(1);
+            npyv_b32 ab = (npyv_b32)vuzp1q_u32((uint32x4_t)c1, (uint32x4_t)c2);
+            npyv_b32 cd = (npyv_b32)vuzp1q_u32((uint32x4_t)c3, (uint32x4_t)c4);
+            uint16x8_t lo16 = vuzp1q_u16((uint16x8_t)ab, (uint16x8_t)cd);
+            vst1_u8((uint8_t*)dst, vand_u8(vmovn_u16(lo16), truemask8));
+
+            npyv_b32 ef = (npyv_b32)vuzp1q_u32((uint32x4_t)c5, (uint32x4_t)c6);
+            npyv_b32 gh = (npyv_b32)vuzp1q_u32((uint32x4_t)c7, (uint32x4_t)c8);
+            uint16x8_t hi16 = vuzp1q_u16((uint16x8_t)ef, (uint16x8_t)gh);
+            vst1_u8((uint8_t*)(dst + vstep / 2), vand_u8(vmovn_u16(hi16), truemask8));
+            continue;
+        }
+#endif
 #if @len@ == 8
         npyv_u8 r = npyv_cvt_u8_b8(c1);
 #elif @len@ == 16
