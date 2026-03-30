@@ -9,6 +9,95 @@
 // Provides the various *_LOOP macros
 #include "fast_loop_macros.h"
 
+#if defined(__aarch64__)
+    #include <arm_sve.h>
+
+    #define NPY_SVE_ATTR __attribute__((target("arch=armv8.2-a+sve")))
+
+static NPY_SVE_ATTR NPY_INLINE svuint8_t
+npy_sve_pack_bool_u64_to_u8(svuint64_t values)
+{
+    svuint32_t pack32 = svuzp1_u32(
+        svreinterpret_u32_u64(values), svreinterpret_u32_u64(values)
+    );
+    svuint16_t pack16 = svuzp1_u16(
+        svreinterpret_u16_u32(pack32), svreinterpret_u16_u32(pack32)
+    );
+    return svuzp1_u8(
+        svreinterpret_u8_u16(pack16), svreinterpret_u8_u16(pack16)
+    );
+}
+
+    #define NPY_SVE_CMP_IMPL(NAME, TYPE, INTRIN)                             \
+static NPY_SVE_ATTR NPY_INLINE svbool_t NAME(svbool_t pg, TYPE a, TYPE b)    \
+{                                                                             \
+    return INTRIN(pg, a, b);                                                  \
+}
+
+NPY_SVE_CMP_IMPL(npy_sve_cmpeq_u64, svuint64_t, svcmpeq_u64)
+NPY_SVE_CMP_IMPL(npy_sve_cmpne_u64, svuint64_t, svcmpne_u64)
+NPY_SVE_CMP_IMPL(npy_sve_cmplt_u64, svuint64_t, svcmplt_u64)
+NPY_SVE_CMP_IMPL(npy_sve_cmple_u64, svuint64_t, svcmple_u64)
+
+NPY_SVE_CMP_IMPL(npy_sve_cmplt_s64, svint64_t, svcmplt_s64)
+NPY_SVE_CMP_IMPL(npy_sve_cmple_s64, svint64_t, svcmple_s64)
+
+NPY_SVE_CMP_IMPL(npy_sve_cmpeq_f64, svfloat64_t, svcmpeq_f64)
+NPY_SVE_CMP_IMPL(npy_sve_cmpne_f64, svfloat64_t, svcmpne_f64)
+NPY_SVE_CMP_IMPL(npy_sve_cmplt_f64, svfloat64_t, svcmplt_f64)
+NPY_SVE_CMP_IMPL(npy_sve_cmple_f64, svfloat64_t, svcmple_f64)
+
+    #define NPY_SVE_BINARY_IMPL(NAME, TYPE, VTYPE, LOAD, CMP)                \
+static NPY_SVE_ATTR void NAME(char **args, npy_intp len)                     \
+{                                                                             \
+    TYPE *src1 = (TYPE *)args[0];                                             \
+    TYPE *src2 = (TYPE *)args[1];                                             \
+    npyv_lanetype_u8 *dst = (npyv_lanetype_u8 *)args[2];                      \
+    const npy_intp vl = (npy_intp)svcntd();                                   \
+    const svbool_t pg_full = svptrue_b64();                                   \
+    const svbool_t pg_store_full = svwhilelt_b8((uint64_t)0, (uint64_t)vl);   \
+    const svuint64_t one = svdup_n_u64(1);                                    \
+    const svuint64_t zero = svdup_n_u64(0);                                   \
+                                                                              \
+    for (; len >= vl; len -= vl, src1 += vl, src2 += vl, dst += vl) {         \
+        VTYPE a = LOAD(pg_full, src1);                                         \
+        VTYPE b = LOAD(pg_full, src2);                                         \
+        svuint8_t out = npy_sve_pack_bool_u64_to_u8(                          \
+            svsel_u64(CMP(pg_full, a, b), one, zero)                          \
+        );                                                                    \
+        svst1_u8(pg_store_full, dst, out);                                    \
+    }                                                                         \
+                                                                              \
+    if (len > 0) {                                                            \
+        svbool_t pg = svwhilelt_b64((uint64_t)0, (uint64_t)len);              \
+        svbool_t pg_store = svwhilelt_b8((uint64_t)0, (uint64_t)len);         \
+        VTYPE a = LOAD(pg, src1);                                              \
+        VTYPE b = LOAD(pg, src2);                                              \
+        svuint8_t out = npy_sve_pack_bool_u64_to_u8(                          \
+            svsel_u64(CMP(pg, a, b), one, zero)                               \
+        );                                                                    \
+        svst1_u8(pg_store, dst, out);                                         \
+    }                                                                         \
+}
+
+NPY_SVE_BINARY_IMPL(npy_sve_binary_equal_u64, npy_uint64, svuint64_t, svld1_u64, npy_sve_cmpeq_u64)
+NPY_SVE_BINARY_IMPL(npy_sve_binary_not_equal_u64, npy_uint64, svuint64_t, svld1_u64, npy_sve_cmpne_u64)
+NPY_SVE_BINARY_IMPL(npy_sve_binary_less_u64, npy_uint64, svuint64_t, svld1_u64, npy_sve_cmplt_u64)
+NPY_SVE_BINARY_IMPL(npy_sve_binary_less_equal_u64, npy_uint64, svuint64_t, svld1_u64, npy_sve_cmple_u64)
+
+NPY_SVE_BINARY_IMPL(npy_sve_binary_less_s64, npy_int64, svint64_t, svld1_s64, npy_sve_cmplt_s64)
+NPY_SVE_BINARY_IMPL(npy_sve_binary_less_equal_s64, npy_int64, svint64_t, svld1_s64, npy_sve_cmple_s64)
+
+NPY_SVE_BINARY_IMPL(npy_sve_binary_equal_f64, npy_double, svfloat64_t, svld1_f64, npy_sve_cmpeq_f64)
+NPY_SVE_BINARY_IMPL(npy_sve_binary_not_equal_f64, npy_double, svfloat64_t, svld1_f64, npy_sve_cmpne_f64)
+NPY_SVE_BINARY_IMPL(npy_sve_binary_less_f64, npy_double, svfloat64_t, svld1_f64, npy_sve_cmplt_f64)
+NPY_SVE_BINARY_IMPL(npy_sve_binary_less_equal_f64, npy_double, svfloat64_t, svld1_f64, npy_sve_cmple_f64)
+
+    #undef NPY_SVE_CMP_IMPL
+    #undef NPY_SVE_BINARY_IMPL
+    #undef NPY_SVE_ATTR
+#endif
+
 /********************************************************************************
  ** Defining the SIMD kernels
  ********************************************************************************/
@@ -33,6 +122,13 @@ static void simd_binary_@kind@_@sfx@(char **args, npy_intp len)
     npyv_lanetype_u8 *dst     = (npyv_lanetype_u8 *) args[2];
     const npyv_u8 truemask    = npyv_setall_u8(0x1);
     const int vstep           = npyv_nlanes_u8;
+
+#if defined(__aarch64__) && @len@ == 64
+    if (NPY_CPU_HAVE(SVE)) {
+        npy_sve_binary_@kind@_@sfx@(args, len);
+        return;
+    }
+#endif
 
     // Unroll the loop to get a resultant vector with 'vsteps' elements.
     for (; len >= vstep;
