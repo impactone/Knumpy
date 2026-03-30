@@ -37,6 +37,12 @@ static void simd_binary_@kind@_@sfx@(char **args, npy_intp len)
     // Unroll the loop to get a resultant vector with 'vsteps' elements.
     for (; len >= vstep;
          len -= vstep, src1 += vstep, src2 += vstep, dst += vstep) {
+#if defined(__aarch64__) && @len@ == 64
+        if (len > vstep * 2) {
+            __builtin_prefetch(src1 + vstep * 2, 0, 3);
+            __builtin_prefetch(src2 + vstep * 2, 0, 3);
+        }
+#endif
 #if @len@ >= 8
         npyv_@sfx@  a1 = npyv_load_@sfx@(src1 + npyv_nlanes_@sfx@ * 0);
         npyv_@sfx@  b1 = npyv_load_@sfx@(src2 + npyv_nlanes_@sfx@ * 0);
