@@ -397,6 +397,10 @@ class InvertBench(Benchmark):
 
 
 def _make_fp_predicate_input(shape, dtype):
+    dtype = np.dtype(dtype)
+    if np.issubdtype(dtype, np.integer):
+        return np.random.randint(-1_000_000, 1_000_000, size=shape, dtype=dtype)
+
     x = np.random.rand(*shape).astype(dtype)
     flat = x.reshape(-1)
     flat[::257] = np.nan
@@ -407,8 +411,8 @@ def _make_fp_predicate_input(shape, dtype):
 
 class IsnanBench(Benchmark):
     params = (
-        [(1000, 10000), (100000,), (100, 1000), (10000, 10), (1000, 1000), (100, 10000), (1000000,)],
-        ['float64']
+        [(1000, 10000), (100000,), (100, 1000), (10000, 10), (1000, 1000), (100, 10000), (1000000,), (100000, 4)],
+        ['int', 'float64']
     )
     param_names = ['shape', 'dtype']
     
