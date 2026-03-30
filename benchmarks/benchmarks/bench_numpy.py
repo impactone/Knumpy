@@ -3,6 +3,13 @@ import numpy as np
 from .common import Benchmark
 
 
+def _make_comparison_input(shape, dtype):
+    dtype = np.dtype(dtype)
+    if np.issubdtype(dtype, np.integer):
+        return np.random.randint(-1_000_000, 1_000_000, size=shape, dtype=dtype)
+    return np.random.rand(*shape).astype(dtype)
+
+
 class AddBench(Benchmark):
     params = (
         [(256*1024*1024,)],
@@ -141,8 +148,8 @@ class EqBench(Benchmark):
     
     def setup(self, shape, dtype):
         np.random.seed(42)
-        self.x = np.random.rand(*shape).astype(dtype)
-        self.y = np.random.rand(*shape).astype(dtype)
+        self.x = _make_comparison_input(shape, dtype)
+        self.y = _make_comparison_input(shape, dtype)
     
     def time_eq(self, shape, dtype):
         self.x == self.y
@@ -157,8 +164,8 @@ class NeBench(Benchmark):
     
     def setup(self, shape, dtype):
         np.random.seed(42)
-        self.x = np.random.rand(*shape).astype(dtype)
-        self.y = np.random.rand(*shape).astype(dtype)
+        self.x = _make_comparison_input(shape, dtype)
+        self.y = _make_comparison_input(shape, dtype)
     
     def time_ne(self, shape, dtype):
         self.x != self.y
@@ -173,8 +180,8 @@ class GeBench(Benchmark):
     
     def setup(self, shape, dtype):
         np.random.seed(42)
-        self.x = np.random.rand(*shape).astype(dtype)
-        self.y = np.random.rand(*shape).astype(dtype)
+        self.x = _make_comparison_input(shape, dtype)
+        self.y = _make_comparison_input(shape, dtype)
     
     def time_ge(self, shape, dtype):
         self.x >= self.y
@@ -189,8 +196,8 @@ class GtBench(Benchmark):
     
     def setup(self, shape, dtype):
         np.random.seed(42)
-        self.x = np.random.rand(*shape).astype(dtype)
-        self.y = np.random.rand(*shape).astype(dtype)
+        self.x = _make_comparison_input(shape, dtype)
+        self.y = _make_comparison_input(shape, dtype)
     
     def time_gt(self, shape, dtype):
         self.x > self.y
@@ -205,8 +212,8 @@ class LeBench(Benchmark):
     
     def setup(self, shape, dtype):
         np.random.seed(42)
-        self.x = np.random.rand(*shape).astype(dtype)
-        self.y = np.random.rand(*shape).astype(dtype)
+        self.x = _make_comparison_input(shape, dtype)
+        self.y = _make_comparison_input(shape, dtype)
     
     def time_le(self, shape, dtype):
         self.x <= self.y
@@ -221,8 +228,8 @@ class LtBench(Benchmark):
     
     def setup(self, shape, dtype):
         np.random.seed(42)
-        self.x = np.random.rand(*shape).astype(dtype)
-        self.y = np.random.rand(*shape).astype(dtype)
+        self.x = _make_comparison_input(shape, dtype)
+        self.y = _make_comparison_input(shape, dtype)
     
     def time_lt(self, shape, dtype):
         self.x < self.y
