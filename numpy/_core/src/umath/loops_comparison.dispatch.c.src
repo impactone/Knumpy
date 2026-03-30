@@ -52,6 +52,10 @@ static void simd_binary_@kind@_@sfx@(char **args, npy_intp len)
         npyv_@sfx@  b4 = npyv_load_@sfx@(src2 + npyv_nlanes_@sfx@ * 3);
         npyv_b@len@ c3 = npyv_@VOP@_@sfx@(a3, b3);
         npyv_b@len@ c4 = npyv_@VOP@_@sfx@(a4, b4);
+#if defined(__aarch64__) && @len@ == 64
+        npyv_b32 ab = (npyv_b32)vuzp1q_u32((uint32x4_t)c1, (uint32x4_t)c2);
+        npyv_b32 cd = (npyv_b32)vuzp1q_u32((uint32x4_t)c3, (uint32x4_t)c4);
+#endif
 #if @len@ == 64
         npyv_@sfx@  a5 = npyv_load_@sfx@(src1 + npyv_nlanes_@sfx@ * 4);
         npyv_@sfx@  b5 = npyv_load_@sfx@(src2 + npyv_nlanes_@sfx@ * 4);
@@ -65,6 +69,10 @@ static void simd_binary_@kind@_@sfx@(char **args, npy_intp len)
         npyv_b@len@ c6 = npyv_@VOP@_@sfx@(a6, b6);
         npyv_b@len@ c7 = npyv_@VOP@_@sfx@(a7, b7);
         npyv_b@len@ c8 = npyv_@VOP@_@sfx@(a8, b8);
+#if defined(__aarch64__)
+        npyv_b32 ef = (npyv_b32)vuzp1q_u32((uint32x4_t)c5, (uint32x4_t)c6);
+        npyv_b32 gh = (npyv_b32)vuzp1q_u32((uint32x4_t)c7, (uint32x4_t)c8);
+#endif
 #endif // @len@ >= 64
 #endif // @len@ >= 32
 #endif // @len@ >= 16
@@ -78,8 +86,12 @@ static void simd_binary_@kind@_@sfx@(char **args, npy_intp len)
 #elif @len@ == 32
         npyv_u8 r = npyv_cvt_u8_b8(npyv_pack_b8_b32(c1, c2, c3, c4));
 #elif @len@ == 64
+#if defined(__aarch64__)
+        npyv_u8 r = npyv_cvt_u8_b8(npyv_pack_b8_b32(ab, cd, ef, gh));
+#else
         npyv_u8 r =
             npyv_cvt_u8_b8(npyv_pack_b8_b64(c1, c2, c3, c4, c5, c6, c7, c8));
+#endif
 #endif
         npyv_store_u8(dst, npyv_and_u8(r, truemask));
     }
