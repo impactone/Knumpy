@@ -37,48 +37,6 @@ static void simd_binary_@kind@_@sfx@(char **args, npy_intp len)
     // Unroll the loop to get a resultant vector with 'vsteps' elements.
     for (; len >= vstep;
          len -= vstep, src1 += vstep, src2 += vstep, dst += vstep) {
-#if defined(__aarch64__) && @len@ == 64
-        {
-            const uint8x8_t truemask8 = vdup_n_u8(1);
-
-            npyv_@sfx@  a1 = npyv_load_@sfx@(src1 + npyv_nlanes_@sfx@ * 0);
-            npyv_@sfx@  b1 = npyv_load_@sfx@(src2 + npyv_nlanes_@sfx@ * 0);
-            npyv_@sfx@  a2 = npyv_load_@sfx@(src1 + npyv_nlanes_@sfx@ * 1);
-            npyv_@sfx@  b2 = npyv_load_@sfx@(src2 + npyv_nlanes_@sfx@ * 1);
-            npyv_@sfx@  a3 = npyv_load_@sfx@(src1 + npyv_nlanes_@sfx@ * 2);
-            npyv_@sfx@  b3 = npyv_load_@sfx@(src2 + npyv_nlanes_@sfx@ * 2);
-            npyv_@sfx@  a4 = npyv_load_@sfx@(src1 + npyv_nlanes_@sfx@ * 3);
-            npyv_@sfx@  b4 = npyv_load_@sfx@(src2 + npyv_nlanes_@sfx@ * 3);
-            npyv_b@len@ c1 = npyv_@VOP@_@sfx@(a1, b1);
-            npyv_b@len@ c2 = npyv_@VOP@_@sfx@(a2, b2);
-            npyv_b@len@ c3 = npyv_@VOP@_@sfx@(a3, b3);
-            npyv_b@len@ c4 = npyv_@VOP@_@sfx@(a4, b4);
-
-            npyv_b32 ab = (npyv_b32)vuzp1q_u32((uint32x4_t)c1, (uint32x4_t)c2);
-            npyv_b32 cd = (npyv_b32)vuzp1q_u32((uint32x4_t)c3, (uint32x4_t)c4);
-            uint16x8_t lo16 = vuzp1q_u16((uint16x8_t)ab, (uint16x8_t)cd);
-            vst1_u8((uint8_t*)dst, vand_u8(vmovn_u16(lo16), truemask8));
-
-            npyv_@sfx@  a5 = npyv_load_@sfx@(src1 + npyv_nlanes_@sfx@ * 4);
-            npyv_@sfx@  b5 = npyv_load_@sfx@(src2 + npyv_nlanes_@sfx@ * 4);
-            npyv_@sfx@  a6 = npyv_load_@sfx@(src1 + npyv_nlanes_@sfx@ * 5);
-            npyv_@sfx@  b6 = npyv_load_@sfx@(src2 + npyv_nlanes_@sfx@ * 5);
-            npyv_@sfx@  a7 = npyv_load_@sfx@(src1 + npyv_nlanes_@sfx@ * 6);
-            npyv_@sfx@  b7 = npyv_load_@sfx@(src2 + npyv_nlanes_@sfx@ * 6);
-            npyv_@sfx@  a8 = npyv_load_@sfx@(src1 + npyv_nlanes_@sfx@ * 7);
-            npyv_@sfx@  b8 = npyv_load_@sfx@(src2 + npyv_nlanes_@sfx@ * 7);
-            npyv_b@len@ c5 = npyv_@VOP@_@sfx@(a5, b5);
-            npyv_b@len@ c6 = npyv_@VOP@_@sfx@(a6, b6);
-            npyv_b@len@ c7 = npyv_@VOP@_@sfx@(a7, b7);
-            npyv_b@len@ c8 = npyv_@VOP@_@sfx@(a8, b8);
-
-            npyv_b32 ef = (npyv_b32)vuzp1q_u32((uint32x4_t)c5, (uint32x4_t)c6);
-            npyv_b32 gh = (npyv_b32)vuzp1q_u32((uint32x4_t)c7, (uint32x4_t)c8);
-            uint16x8_t hi16 = vuzp1q_u16((uint16x8_t)ef, (uint16x8_t)gh);
-            vst1_u8((uint8_t*)(dst + vstep / 2), vand_u8(vmovn_u16(hi16), truemask8));
-            continue;
-        }
-#endif
 #if @len@ >= 8
         npyv_@sfx@  a1 = npyv_load_@sfx@(src1 + npyv_nlanes_@sfx@ * 0);
         npyv_@sfx@  b1 = npyv_load_@sfx@(src2 + npyv_nlanes_@sfx@ * 0);
